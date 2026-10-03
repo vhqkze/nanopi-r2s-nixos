@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: "是否在构建成功后发布到 Release？(填 true 或 false)"
+        description: "是否发布到 Release？"
         type: boolean
         required: true
         default: false
@@ -30,10 +30,11 @@ jobs:
         run: nix build
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nanopi-r2s-nixos-sd-image
           path: result/sd-image/*.img.zst
+          archive: false
           if-no-files-found: error
           retention-days: 7
 
@@ -53,7 +54,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         if: ${{ inputs.create_release }}
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
+          tag_name: ${{ steps.tag.outputs.tag_name }}
           name: Release ${{ steps.tag.outputs.tag_name }}
           body: "NanoPi R2S 的 NixOS 镜像。"
           files: result/sd-image/*.img.zst
