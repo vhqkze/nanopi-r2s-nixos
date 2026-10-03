@@ -1,0 +1,167 @@
+= NanoPi R2S 安装 NixOS
+vhqkze
+:keywords: nanopi r2s, nixos, sd image, guide
+:description: 为 NanoPi R2S 构建并安装 NixOS SD 卡镜像指南。
+:repo-name: nanopi-r2s-nixos
+:icons: font
+:toc: left
+:toclevels: 2
+:toc-title: 目录
+:imagesdir: assets
+
+
+== 项目简介
+
+本项目旨在为 **NanoPi R2S** 设备快速生成开箱即用的 NixOS SD 卡镜像（`.img`）。生成的镜像可直接通过 `dd` 命令写入 MicroSD 卡启动运行。
+
+== 构建与安装指南
+
+=== 方式一：GitHub Actions 自动构建（推荐）
+
+强烈推荐此方式：操作简便快速，且**无需在本地准备 NixOS 或配置交叉编译环境**。
+
+. **Fork 并克隆仓库**
++
+Fork 本仓库至你的个人 GitHub 账号，然后克隆到本地：
++
+[source,bash,subs="+attributes"]
+----
+git clone https://github.com/<your-username>/{repo-name}.git
+cd {repo-name}
+----
+
+. **配置 SSH 公钥（关键步骤）**
++
+[WARNING]
+====
+这一步至关重要！若不配置，系统启动后将无法通过 SSH 登录。
+====
++
+打开 `flake.nix`，定位到配置项：
++
+[source,nix]
+----
+users.users.root.openssh.authorizedKeys.keys = [
+  # 替换为你自己的公钥
+];
+----
++
+将你的公钥内容（可通过 `cat ~/.ssh/id_ed25519.pub` 或 `cat ~/.ssh/id_rsa.pub` 查看）粘贴进去。
+
+. **更新依赖锁定（可选）**
++
+若你本地已安装 Nix 且希望使用最新的 nixpkgs，可执行更新（非必须）：
++
+[source,bash]
+----
+nix flake update
+----
+
+. **提交并推送到 GitHub**
++
+[source,bash]
+----
+git add .
+git commit -m "chore: configure ssh key"
+git push
+----
+
+. **触发构建与下载**
++
+进入你的 GitHub 仓库中的 **Actions** 标签页，手动点击 Run workflow。构建完成后：
++
+* 若开启了 Release 发行，可在 **Releases** 页面下载。
+* 否则直接在当次 Actions 运行结果的 **Artifacts** 中下载打包好的镜像。
+
+. **解压并写入 SD 卡**
++
+使用 `lsblk -l` 确认 SD 卡的盘符（假设为 `/dev/sdc`，**请务必仔细核对，避免覆盖系统硬盘**）：
++
+[source,bash]
+----
+# 解压 zstd 压缩包
+unzstd nixos-image-*.img.zst
+
+# 写入 SD 卡
+sudo dd if=$(ls nixos-image-*.img) of=/dev/sdc bs=4M status=progress oflag=sync
+----
+
+=== 方式二：本地构建
+
+适用于本地已有 Nix 环境、配置了网络加速（访问 GitHub/Cache 稳定），且设备算力充裕的情况。
+
+. **克隆仓库**
++
+[source,bash,subs="+attributes"]
+----
+git clone https://github.com/vhqkze/{repo-name}.git
+cd {repo-name}
+----
+
+. **配置 SSH 公钥**
++
+修改 `flake.nix` 中的 `users.users.root.openssh.authorizedKeys.keys` 为你的公钥。
+
+. **关闭镜像压缩以加速构建（推荐）**
++
+在 `flake.nix` 中将 `sdImage.compressImage` 设置为 `false`。由于在本地构建后直接刻录，跳过压缩能大幅节省时间和 CPU 开销。
+
+. **执行构建**
++
+* **若当前设备本身为 aarch64 架构（如其他 ARM 芯片开发板）：**
++
+[source,bash]
+----
+nix build
+----
++
+* **若当前设备为 x86_64 PC：**
++
+需要确保本地配置了 `boot.binfmt.emulatedSystems = [ "aarch64-linux" ];`（或安装配置了 QEMU），随后执行：
++
+[source,bash]
+----
+nix build --system aarch64-linux
+----
+
+. **刻录镜像**
++
+构建完成后，镜像位于 `result/sd-image/` 目录下：
++
+[source,console]
+----
+$ ls -lh result/sd-image/
+-r--r--r-- 1 root root 2.4G nixos-image-sd-card-...-aarch64-linux.img
+----
++
+使用 `lsblk -l` 确认 SD 卡的盘符（假设为 `/dev/sdc`，**请务必仔细核对，避免覆盖系统硬盘**），执行写入命令（以 `/dev/sdc` 为例）：
++
+[source,bash]
+----
+sudo dd if=./result/sd-image/*.img of=/dev/sdc bs=4M status=progress oflag=sync
+----
+
+== 上电启动
+
+. 将 SD 卡插入 NanoPi R2S。
+. 连接网线至 NanoPi R2S 的任意一个网口，插上电源。
+. 等待约 1-2 分钟初始化完成，通过主机名进行 SSH 连接：
++
+[source,bash]
+----
+ssh root@r2s.local
+----
++
+[TIP]
+====
+如果 `r2s.local` 无法解析（部分路由器不支持 mDNS），请登录路由器后台查看分配给设备的实际 IP 地址，通过 `ssh root@<IP>` 登录。
+====
++
+image::ssh.png[]
+
+== 致谢
+
+本项目参考并借鉴了以下开源仓库，在此表示感谢：
+
+* https://github.com/AsterisMono/flake[AsterisMono/flake]
+* https://github.com/EHfive/flakes[EHfive/flakes]
