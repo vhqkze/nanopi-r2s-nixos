@@ -1,0 +1,65 @@
+name: Build NixOS SD Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "是否发布到 Release？"
+        type: boolean
+        required: true
+        default: false
+      release_tag:
+        description: "Release 的版本号 （留空则默认使用 vYYYY.MM.DD）"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04-arm
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Build SD Image
+        run: nix build
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nanopi-r2s-nixos-sd-image
+          path: result/sd-image/*.img.zst
+          archive: false
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Generate Tag Name
+        if: ${{ inputs.create_release }}
+        id: tag
+        run: |
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            TAG_NAME="${{ inputs.release_tag }}"
+          else
+            # 获取当前 UTC 日期，格式如 v2026.10.03
+            TAG_NAME="v$(date -u +'%Y.%m.%d')"
+          fi
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        if: ${{ inputs.create_release }}
+        with:
+          tag_name: ${{ steps.tag.outputs.tag_name }}
+          name: Release ${{ steps.tag.outputs.tag_name }}
+          body: "NanoPi R2S 的 NixOS 镜像。"
+          files: result/sd-image/*.img.zst
+          draft: false
+          prerelease: false
+          generate_release_notes: true
